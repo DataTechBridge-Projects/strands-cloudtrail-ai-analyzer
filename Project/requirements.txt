@@ -1,0 +1,5 @@
+streamlit==1.49.1
+boto3==1.40.35
+botocore==1.40.35
+strands-agents==1.9.1
+strands-agents-tools==0.2.8

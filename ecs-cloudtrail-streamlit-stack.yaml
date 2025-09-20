@@ -1,0 +1,253 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for deploying CloudTrail Streamlit Chatbot on ECS with Bedrock, Athena, and Glue access'
+
+Parameters:
+  ImageName:
+    Type: String
+    Description: The name of the container image to use for the ECS task
+    Default: cloudtrail-streamlit-chatbot
+  ImageTag:
+    Type: String
+    Description: The tag of the container image to use for the ECS task
+    Default: latest
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for Athena query results
+  VpcId:
+    Type: String
+    Description: VPC ID for the ECS deployment
+  SubnetId:
+    Type: String
+    Description: Subnet ID for the ECS deployment
+  AllowedCidr:
+    Type: String
+    Description: CIDR block allowed to access the Streamlit app (e.g., your office IP/32 or VPN range)
+    Default: 0.0.0.0/0
+    AllowedPattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$
+    ConstraintDescription: Must be a valid CIDR block (e.g., 203.0.113.0/24 or 203.0.113.1/32)
+  DatabaseName:
+    Type: String
+    Description: Glue database name for CloudTrail logs
+    Default: logs_database
+  TableName:
+    Type: String
+    Description: Glue table name for CloudTrail logs
+    Default: cloudtrail_logs_pp_y_m_d
+  AthenaResultsBucket:
+    Type: String
+    Description: S3 bucket for Athena query results
+
+Resources:
+
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: CloudTrailStreamlitCluster
+      CapacityProviders: 
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+  ECSTaskRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-ECSTaskRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
+                  - 'bedrock:ListFoundationModels'
+                Resource: '*'
+        - PolicyName: AthenaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 'athena:GetQueryResults'
+                  - 'athena:StopQueryExecution'
+                  - 'athena:GetWorkGroup'
+                  - 'athena:ListQueryExecutions'
+                Resource: '*'
+        - PolicyName: GlueAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'glue:GetDatabase'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetTable'
+                  - 'glue:GetTables'
+                  - 'glue:GetPartition'
+                  - 'glue:GetPartitions'
+                  - 'glue:BatchGetPartition'
+                Resource: '*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                  - 's3:ListBucket'
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${AthenaResultsBucket}'
+                  - !Sub 'arn:aws:s3:::${AthenaResultsBucket}/*'
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource: !Sub 'arn:aws:s3:::${AthenaResultsBucket}'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - 'arn:aws:s3:::cloudtrail-awslogs-*'
+                  - 'arn:aws:s3:::cloudtrail-awslogs-*/*'
+
+  ECSTaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      Family: 
+        Fn::Join:
+          - '-'
+          - - 'cloudtrail-streamlit-task'
+            - !Ref AWS::StackName
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ExecutionRoleArn: !GetAtt ECSTaskRole.Arn
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: cloudtrail-streamlit-container
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageName}:${ImageTag}'
+          Cpu: 0
+          PortMappings:
+            - Name: streamlit-80-tcp
+              ContainerPort: 80
+              Protocol: tcp
+              AppProtocol: http
+          Essential: true
+          Environment:
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+            - Name: STRANDS_MODEL_ID
+              Value: anthropic.claude-3-sonnet-20240229-v1:0
+            - Name: STRANDS_MAX_TOKENS
+              Value: '4000'
+            - Name: STRANDS_TEMPERATURE
+              Value: '1.0'
+            - Name: DATABASE_NAME
+              Value: !Ref DatabaseName
+            - Name: TABLE_NAME
+              Value: !Ref TableName
+            - Name: ATHENA_RESULTS_BUCKET
+              Value: !Ref AthenaResultsBucket
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogsGroup
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: ecs
+              mode: non-blocking
+              max-buffer-size: 25m
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/cloudtrail-streamlit-${AWS::StackName}'
+      RetentionInDays: 14
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for CloudTrail Streamlit ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedCidr
+          Description: Allow HTTP traffic from specified CIDR block
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ECS-SecurityGroup'
+
+  # ECS Service
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub '${AWS::StackName}-Service'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref SubnetId
+          AssignPublicIp: ENABLED
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ECS-Service'
+
+Outputs:
+  ClusterName:
+    Description: The name of the ECS cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+
+  TaskDefinitionArn:
+    Description: The ARN of the Task Definition
+    Value: !Ref ECSTaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinitionArn'
+
+  TaskRoleArn:
+    Description: The ARN of the ECS Task Role
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskRoleArn'
+
+  ECSSecurityGroup:
+    Description: ECS Security Group
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSSecurityGroup'
+
+  ServiceName:
+    Description: The name of the ECS service
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceName'
