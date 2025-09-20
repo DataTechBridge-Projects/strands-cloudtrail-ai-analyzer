@@ -22,6 +22,7 @@ This folder contains everything needed to deploy the CloudTrail Streamlit Chatbo
      --template-body file://ecs-cloudtrail-streamlit-stack.yaml \
      --parameters ParameterKey=VpcId,ParameterValue=vpc-your-vpc-id \
                   ParameterKey=SubnetId,ParameterValue=subnet-your-subnet-id \
+                  ParameterKey=S3BucketName,ParameterValue=your-athena-bucket \
                   ParameterKey=AthenaResultsBucket,ParameterValue=your-athena-bucket \
                   ParameterKey=ImageTag,ParameterValue=latest \
      --capabilities CAPABILITY_NAMED_IAM \
@@ -133,6 +134,7 @@ aws cloudformation create-stack \
   --template-body file://ecs-cloudtrail-streamlit-stack.yaml \
   --parameters ParameterKey=VpcId,ParameterValue=vpc-your-vpc-id \
                ParameterKey=SubnetId,ParameterValue=subnet-your-subnet-id \
+               ParameterKey=S3BucketName,ParameterValue=your-athena-bucket \
                ParameterKey=AthenaResultsBucket,ParameterValue=your-athena-bucket \
                ParameterKey=ImageTag,ParameterValue=latest \
   --capabilities CAPABILITY_NAMED_IAM \
@@ -146,6 +148,7 @@ aws cloudformation create-stack \
   --template-body file://ecs-cloudtrail-streamlit-stack.yaml \
   --parameters ParameterKey=VpcId,ParameterValue=vpc-12345678 \
                ParameterKey=SubnetId,ParameterValue=subnet-12345678 \
+               ParameterKey=S3BucketName,ParameterValue=my-athena-bucket \
                ParameterKey=AthenaResultsBucket,ParameterValue=my-athena-bucket \
                ParameterKey=ImageName,ParameterValue=cloudtrail-streamlit-chatbot \
                ParameterKey=ImageTag,ParameterValue=v6.0 \
