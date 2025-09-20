@@ -1,5 +1,9 @@
 # CloudTrail Streamlit Chatbot - ECS Deployment
 
+## Start from here: 
+https://medium.com/@DataTechBridge/how-i-built-and-deployed-a-strands-agent-on-ecs-to-diagnose-aws-issues-using-cloudtrail-38e6f7eac634
+
+
 This folder contains everything needed to deploy the CloudTrail Streamlit Chatbot on AWS ECS using Fargate.
 
 ## Quick Start
